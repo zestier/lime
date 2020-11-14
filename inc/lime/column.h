@@ -1,34 +1,68 @@
 #pragma once
 
+#include "cell.h"
+#include <boost/mp11/algorithm.hpp>
 #include <array>
-#include <ctti/type_id.hpp>
+#include <span>
+#include <type_traits>
+#include <tuple>
 
-using ColumnId = std::conditional_t<1, ctti::type_id_t, ctti::unnamed_type_id_t>;
+using ColumnId = CellId;
 
 template <typename T>
 constexpr ColumnId GetColumnId() {
-    if constexpr (std::is_same_v<ColumnId, ctti::type_id_t>)
-        return ctti::type_id<T>();
-    if constexpr (std::is_same_v<ColumnId, ctti::unnamed_type_id_t>)
-        return ctti::unnamed_type_id<T>();
+    return CellMetaT<T>().id;
 }
 
-class ColumnList {
-public:
-    const ColumnId* typesBegin = nullptr;
-    const ColumnId* typesEnd = nullptr;
+template <typename T>
+constexpr auto storage_required_v = std::is_empty_v<T> ? 0 : sizeof(T);
 
-    // An important property of column packs is they can be iterated in a stable way
-    auto begin() const { return typesBegin; }
-    auto end() const { return typesEnd; }
-    auto size() const { return typesEnd - typesBegin; }
+// Sorts by alignment, storage size, and then name.
+template <typename L, typename R>
+struct ColumnId_less {
+    static constexpr bool value = CellMetaT<L>() > CellMetaT<R>();
+};
+
+// List is assumed to be unique and sorted by criteria listed above
+class ColumnList : public std::span<const ColumnId> {
+public:
+    using span::span;
+
+    bool Contains(const ColumnId& rhs) const {
+        return std::find(std::cbegin(*this), std::cend(*this), rhs) != std::cend(*this);
+    }
+
+    bool ContainsAll(const ColumnList& rhs) const {
+        auto curL = begin(), endL = end();
+        auto curR = rhs.begin(), endR = rhs.end();
+        for (; curR != endR; ++curR) {
+            for (;; ++curL) {
+                if (curL == endL)
+                    return false;
+                if (*curL == *curR)
+                    break;
+            }
+        }
+        return true;
+    }
+};
+
+template <typename U>
+struct extraction;
+
+template <typename... Us>
+struct extraction<std::tuple<Us...>> {
+    static constexpr std::array<ColumnId, sizeof...(Us)> ids = { GetColumnId<Us>()... };
+    static constexpr std::array<CellMeta, sizeof...(Us)> metas = { CellMetaT<Us>()... };
 };
 
 template <typename... Ts>
 struct ColumnListT : ColumnList {
-    static constexpr std::array<ColumnId, sizeof...(Ts)> IDs = { GetColumnId<Ts>()... };
-    constexpr ColumnListT() {
-        typesBegin = IDs.data();
-        typesEnd = typesBegin + IDs.size();
-    }
+    using unique = boost::mp11::mp_unique<std::tuple<Ts...>>;
+    using sorted = boost::mp11::mp_sort<unique, ColumnId_less>;
+    using types = sorted;
+
+    static constexpr auto ids = extraction<types>::ids;
+    static constexpr auto metas = extraction<types>::metas;
+    constexpr ColumnListT() : ColumnList(ids) { }
 };

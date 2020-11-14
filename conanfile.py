@@ -38,5 +38,4 @@ class LimeConan(ConanFile):
         self.copy("license*", dst="licenses",  ignore_case=True, keep_path=False)
         
     def package_info(self):
-        pass
-        #self.cpp_info.libs = ["lime"]
+        self.cpp_info.libs = ["lime"]

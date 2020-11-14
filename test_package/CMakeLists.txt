@@ -21,8 +21,8 @@ else()
     add_compile_options(-W -Wall -Werror)
 endif()
 
-add_executable(
-    lime_test
+add_executable(lime_test
+    src/insert.cpp
     src/main.cpp
 )
 target_link_libraries(lime_test PRIVATE ${CONAN_TARGETS})

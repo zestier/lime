@@ -73,8 +73,9 @@ public:
             v.value = (*rc).value;
         });
 
+        auto iterationOffset = std::size_t(0);
         const auto tables = *std::get<CallableParam<TableList>>(commonParams);
-        std::for_each(std::begin(tables), std::end(tables), [this, callParams, iterationOffset = std::size_t(0)](const Table& table) mutable {
+        std::for_each(std::begin(tables), std::end(tables), [this, callParams, &iterationOffset](const Table& table) {
             const auto rowCount = table.rowCount;
             if (!rowCount)
                 return;

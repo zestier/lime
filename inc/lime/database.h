@@ -1,19 +1,37 @@
 #pragma once
 
 #include "column.h"
-#include "row.h"
+#include "record.h"
 #include "table.h"
 #include <boost/dynamic_bitset.hpp>
 #include <unordered_map>
 
 #include "placeholder.h"
 
+inline ColumnId GetColumnId(const ColumnId& id) {
+    return id;
+}
+
+inline ColumnId GetColumnId(const CellMeta& meta) {
+    return meta.id;
+}
+
 class Database {
 public:
     using TableBits = boost::dynamic_bitset<>;
+    struct RecordLocation {
+        std::uintptr_t tableIndex; // Table in database
+        std::size_t rowIndex;      // Row in table
+    };
 
+    template <typename... Ts>
+    using TableColumnList = ColumnListT<RecordId, Ts...>;
+
+    RecordIdFactory recordFactory;
+    std::vector<RecordLocation> recordLocations; // Index using an active record's index
+
+    TableFactory tableFactory;
     std::vector<Table> tables;
-    std::vector<std::uint32_t> rowGenerations;
 
     // The performance of this can likely be increased significantly. The use case
     // effectively wants a hash map where the values are all resizable arrays of the
@@ -22,28 +40,10 @@ public:
     std::unordered_map<ColumnId, TableBits> tablesWithColumn;
     TableBits tablesWithSpace;
 
-    template <typename... Ts>
-    Table& InsertTable() {
-        const auto tableIndex = tables.size();
-        auto table = CreateTable<RowId, Ts...>(64);
-        tables.push_back(table);
+    std::size_t InsertTable(Table&& table);
 
-        const auto columns = table.columns;
-        std::for_each(std::cbegin(columns), std::cend(columns), [this, tableIndex](ColumnId column) {
-            constexpr auto blockSize = std::numeric_limits<TableBits::block_type>::digits;
-            auto& tableBits = tablesWithColumn[column];
-            if (tableIndex >= tableBits.size()) {
-                tableBits.resize((tableIndex & ~(blockSize - 1)) + blockSize);
-                tablesWithSpace.resize((tableIndex & ~(blockSize - 1)) + blockSize);
-            }
-            tableBits.set(tableIndex);
-        });
-        tablesWithSpace.set(tableIndex, true);
-        return tables[tableIndex];
-    }
-
-    template <typename CombineOp>
-    TableBits FindMatches(const ColumnList& columns, CombineOp op, bool fallback) {
+    template <typename Container, typename CombineOp>
+    TableBits FindMatches(const Container& columns, CombineOp op, bool fallback) {
         auto iter = std::cbegin(columns);
         auto end = std::cend(columns);
 
@@ -55,38 +55,28 @@ public:
             return ret;
         }
 
-        do {
-            auto entry = tablesWithColumn.find(*iter);
-            ++iter;
-            if (entry != tablesWithColumn.end()) {
-                auto ret = entry->second;
-                for (; iter != end; ++iter) {
-                    entry = tablesWithColumn.find(*iter);
-                    if (entry != tablesWithColumn.end())
-                        op(ret, entry->second);
-                }
-                return ret;
-            }
-        } while (iter != end);
-        return TableBits(bitCount);
+        auto& first = tablesWithColumn[GetColumnId(*iter)];
+        first.resize(bitCount);
+
+        auto ret = first;
+        for (++iter; iter != end; ++iter) {
+            auto& next = tablesWithColumn[GetColumnId(*iter)];
+            next.resize(bitCount);
+            op(ret, next);
+        }
+        return ret;
     }
 
-    template <typename... Ts>
-    Table& FindOrInsertTable() {
-        // Look for an existing table. An exact match would be a table that has all columns
-        // and whose column count is the same as provided.
-        constexpr auto columns = ColumnListT<RowId, Ts...>();
+    template <typename Container>
+    std::optional<std::size_t> FindInsertableTable(const Container& columns) {
         const auto bits = FindMatches(columns, [](auto& l, const auto& r) { l &= r; }, 0) & tablesWithSpace;
         for (auto tableIndex = bits.find_first(); tableIndex != TableBits::npos; tableIndex = bits.find_next(tableIndex)) {
             auto& testTable = tables[tableIndex];
             if (testTable.columns.size() != columns.size())
                 continue;
-            if (testTable.rowCount == testTable.rowCapacity)
-                continue;
-            return testTable;
+            return tableIndex;
         }
-
-        return InsertTable<Ts...>();
+        return std::nullopt;
     }
 
     template <typename T>
@@ -98,14 +88,93 @@ public:
 
 public:
     template <typename... Ts>
-    RowId Insert(Ts... args) {
-        auto& table = FindOrInsertTable<Ts...>();
-        (Set(table, table.rowCount, args), ...);
-        table.rowCount += 1;
-        tablesWithSpace.set(&table - tables.data(), table.rowCount != table.rowCapacity);
-        return { 0, 0 };
+    RecordId Insert(Ts... args) {
+        using TCL = TableColumnList<Ts...>;
+        const auto ret = recordFactory.Alloc();
+
+        // Find table
+        auto tableIndex = FindInsertableTable(TCL());
+        if (!tableIndex)
+            tableIndex = InsertTable(tableFactory.Alloc(TCL::metas));
+        auto& table = tables[tableIndex.value()];
+
+        const auto rowIndex = table.rowCount++;
+
+        // Store data
+        Set(table, rowIndex, ret);
+        (Set(table, rowIndex, args), ...);
+        tablesWithSpace.set(tableIndex.value(), table.rowCount != table.rowCapacity);
+
+        // Create a quick lookup table so we can later dtermine where a record is
+        if (recordLocations.size() <= ret.index)
+            recordLocations.resize(ret.index + 1);
+        recordLocations[ret.index] = { .tableIndex = tableIndex.value(), .rowIndex = rowIndex };
+
+        return ret;
     }
 
     template <typename... Ts>
-    void Insert(RowId row, Ts... args) { }
+    void Upsert(RecordId record, Ts... args) {
+        using ColumnList = ColumnListT<Ts...>;
+        if (!recordFactory.IsActive(record))
+            return;
+
+        // First need to establish if the record is presently in the correct table
+        const auto location = recordLocations[record.index];
+        auto& initialTable = tables[location.tableIndex];
+        const auto sameTable = initialTable.columns.ContainsAll(ColumnList());
+
+        // If already in the correct table updating the values is all that needs to be done.
+        if (sameTable) {
+            (Set(initialTable, location.rowIndex, args), ...);
+            return;
+        }
+
+        // If not, move the record to an appropriate table and then update the values
+        // Build the list of metadata to use.
+        std::vector<CellMeta> cm;
+        cm.insert(cm.end(), initialTable.cellMetas, initialTable.cellMetas + initialTable.columns.size());
+        cm.insert(cm.end(), std::cbegin(ColumnList::metas), std::cend(ColumnList::metas));
+        std::sort(std::begin(cm), std::end(cm), std::greater<CellMeta>());
+        cm.erase(std::unique(std::begin(cm), std::end(cm)), std::end(cm));
+
+        // Find new table
+        auto tableIndex = FindInsertableTable(cm);
+        if (!tableIndex)
+            tableIndex = InsertTable(tableFactory.Alloc(cm));
+        auto& table = tables[tableIndex.value()];
+        const auto rowIndex = table.rowCount++;
+
+        // Update the location record
+        recordLocations[record.index] = { .tableIndex = tableIndex.value(), .rowIndex = rowIndex };
+
+        // Copy over data from old table
+        for (std::size_t i = 0; i < table.columns.size(); ++i) {
+            const auto& meta = table.cellMetas[i];
+            if (meta.storageBytes && initialTable.columns.Contains(meta.id)) {
+                const auto initialIter = std::find(std::cbegin(initialTable.columns), std::cend(initialTable.columns), meta.id);
+                const auto initialIndex = std::distance(std::cbegin(initialTable.columns), initialIter);
+                std::memcpy(
+                    static_cast<std::byte*>(table.instanceData[i]) + rowIndex * meta.storageBytes,
+                    static_cast<std::byte*>(initialTable.instanceData[initialIndex]) + location.rowIndex * meta.storageBytes,
+                    meta.storageBytes
+                );
+            }
+        }
+
+        // Remove data from old table
+        if (location.rowIndex != --initialTable.rowCount) {
+            for (std::size_t i = 0; i < initialTable.columns.size(); ++i) {
+                const auto& meta = initialTable.cellMetas[i];
+                std::memcpy(
+                    static_cast<std::byte*>(initialTable.instanceData[i]) + location.rowIndex * meta.storageBytes,
+                    static_cast<std::byte*>(initialTable.instanceData[i]) + initialTable.rowCount * meta.storageBytes,
+                    meta.storageBytes
+                );
+            }
+        }
+
+        // Insert new data
+        (Set(table, rowIndex, args), ...);
+    }
 };

@@ -27,7 +27,7 @@ public:
 
         const auto tableBits = db.FindMatches(
             boost::mp11::mp_rename<typename Traits::requires_types, ColumnListT>(),
-            [](auto& a, const auto& b) { a |= b; },
+            [](auto& a, const auto& b) { a &= b; },
             false
         );
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cell.h"
 #include "column.h"
 #include <cstddef>
 
@@ -11,4 +12,5 @@ public: // Hot data. Used very frequently.
 
 public: // Cold data. Used less frequently. If/when it grows this could switch to a pointer to the cold data.
     std::size_t rowCapacity;
+    const CellMeta* cellMetas;
 };
