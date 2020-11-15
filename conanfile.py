@@ -22,6 +22,9 @@ class LimeConan(ConanFile):
         "concurrentqueue/1.0.1",
     )
 
+    def configure(self):
+        self.options["boost"].header_only = True
+
     def build(self):
         pass
         #cmake = CMake(self)
