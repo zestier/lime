@@ -13,12 +13,20 @@ struct CellMeta {
     std::size_t storageBytes;
 };
 
+constexpr auto compare(const std::size_t l, const std::size_t r) {
+    if (l < r)
+        return -1;
+    if (l > r)
+        return 1;
+    return 0;
+}
+
 constexpr auto compare(const CellMeta& lhs, const CellMeta& rhs) {
-    if (auto cmp = lhs.alignment - rhs.alignment; cmp != 0)
+    if (auto cmp = compare(lhs.alignment, rhs.alignment); cmp != 0)
         return cmp;
-    if (auto cmp = lhs.storageBytes - rhs.storageBytes; cmp != 0)
+    if (auto cmp = compare(lhs.storageBytes, rhs.storageBytes); cmp != 0)
         return cmp;
-    return lhs.id.hash() - rhs.id.hash();
+    return compare(lhs.id.hash(), rhs.id.hash());
 }
 
 constexpr bool operator==(const CellMeta& lhs, const CellMeta& rhs) { return compare(lhs, rhs) == 0; }

@@ -37,7 +37,12 @@ public:
             tables.push_back(db.tables[tableIndex]);
 
         trySet<RowCount>(params, [&tables](auto& v) {
-            v.value = std::reduce(std::begin(tables), std::end(tables), std::size_t(0), [](const size_t l, const Table& r) { return l + r.rowCount; });
+            v.value = std::transform_reduce(
+                std::begin(tables), std::end(tables),
+                std::size_t(0),
+                std::plus<std::size_t>(),
+                [](const Table& t) { return t.rowCount; }
+            );
         });
         trySet<TableCount>(params, [&tables](auto& v) {
             v.value = tables.size();

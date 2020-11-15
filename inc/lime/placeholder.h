@@ -26,7 +26,7 @@ Table CreateTable(std::size_t rowCount) {
         .instanceData = CreateTypeBuffers<typename ColumnList::types>::exec(rowCount),
         .rowCount = 0,
         .rowCapacity = rowCount,
-        .cellMetas = typename ColumnList::metas.data(),
+        .cellMetas = ColumnList::metas.data(),
     };
 }
 
@@ -56,6 +56,6 @@ public:
         return ret;
     }
 
-    void Free(const Table& table) {
+    void Free(const Table& /*table*/) {
     }
 };

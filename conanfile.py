@@ -26,10 +26,9 @@ class LimeConan(ConanFile):
         self.options["boost"].header_only = True
 
     def build(self):
-        pass
-        #cmake = CMake(self)
-        #cmake.configure()
-        #cmake.build()
+        cmake = CMake(self)
+        cmake.configure()
+        cmake.build()
 
     def package(self):
         self.copy("*.h"  , dst="include", src="inc", keep_path=True)

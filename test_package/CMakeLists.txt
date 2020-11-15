@@ -18,7 +18,7 @@ if (MSVC)
     add_compile_options(/W3 /WX)
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 else()
-    add_compile_options(-W -Wall -Werror)
+    #add_compile_options(-W -Wall -Werror)
 endif()
 
 add_executable(lime_test
