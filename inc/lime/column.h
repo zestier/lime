@@ -3,7 +3,7 @@
 #include "cell.h"
 #include <boost/mp11/algorithm.hpp>
 #include <array>
-#include <span>
+#include <gsl/span>
 #include <type_traits>
 #include <tuple>
 
@@ -24,7 +24,7 @@ struct ColumnId_less {
 };
 
 // List is assumed to be unique and sorted by criteria listed above
-class ColumnList : public std::span<const ColumnId> {
+class ColumnList : public gsl::span<const ColumnId> {
 public:
     using span::span;
 

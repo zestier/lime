@@ -1,7 +1,7 @@
 #pragma once
 
 #include "table.h"
-#include <span>
+#include <gsl/span>
 
 template <typename T>
 T* CreateTypeBuffer(std::size_t rowCount) {
@@ -32,7 +32,7 @@ Table CreateTable(std::size_t rowCount) {
 
 class TableFactory {
 public:
-    Table Alloc(std::span<const CellMeta> metas) {
+    Table Alloc(gsl::span<const CellMeta> metas) {
         const auto rowCapacity = 128;
         const auto columnCount = metas.size();
 
