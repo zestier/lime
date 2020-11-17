@@ -2,6 +2,7 @@
 
 #include "table.h"
 #include <gsl/span>
+#include <new>
 
 template <typename T>
 T* CreateTypeBuffer(std::size_t rowCount) {
@@ -36,15 +37,15 @@ public:
         const auto rowCapacity = 128;
         const auto columnCount = metas.size();
 
-        auto columns = new ColumnId[columnCount];
+        auto columns = static_cast<ColumnId*>(malloc(columnCount * sizeof(ColumnId)));
         auto instances = new void*[columnCount];
-        auto cellMetas = new CellMeta[columnCount];
+        auto cellMetas = static_cast<CellMeta*>(malloc(columnCount * sizeof(CellMeta)));
 
         auto index = 0;
         for (const auto& meta : metas) {
-            columns[index] = meta.id;
-            instances[index] = calloc(rowCapacity, meta.storageBytes);
-            cellMetas[index] = meta;
+            new(columns + index) ColumnId(meta.id);
+            instances[index] = std::calloc(rowCapacity, meta.storageBytes);
+            new(cellMetas + index) CellMeta(meta);
             ++index;
         }
 

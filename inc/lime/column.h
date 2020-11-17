@@ -28,10 +28,6 @@ class ColumnList : public gsl::span<const ColumnId> {
 public:
     using span::span;
 
-    bool Contains(const ColumnId& rhs) const {
-        return std::find(std::cbegin(*this), std::cend(*this), rhs) != std::cend(*this);
-    }
-
     bool ContainsAll(const ColumnList& rhs) const {
         auto curL = begin(), endL = end();
         auto curR = rhs.begin(), endR = rhs.end();

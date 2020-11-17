@@ -118,6 +118,10 @@ public:
         using ColumnList = ColumnListT<Ts...>;
         if (!recordFactory.IsActive(record))
             return;
+            
+        // Very dumb! Make sure there's at least 1 space left in the tables list.
+        // This is so initialTable's memory doesn't move if we insert a new table.
+        tables.reserve(tables.size() + 1);
 
         // First need to establish if the record is presently in the correct table
         const auto location = recordLocations[record.index];
@@ -149,22 +153,33 @@ public:
         recordLocations[record.index] = { .tableIndex = tableIndex.value(), .rowIndex = rowIndex };
 
         // Copy over data from old table
-        for (std::size_t i = 0; i < table.columns.size(); ++i) {
+      
+        const auto initialColBeg = std::cbegin(initialTable.columns);
+        const auto initialColEnd = std::cend(initialTable.columns);
+        auto initialColIter = initialColBeg;
+        for (std::ptrdiff_t i = 0; i < table.columns.size(); ++i) {
             const auto& meta = table.cellMetas[i];
-            if (meta.storageBytes && initialTable.columns.Contains(meta.id)) {
-                const auto initialIter = std::find(std::cbegin(initialTable.columns), std::cend(initialTable.columns), meta.id);
-                const auto initialIndex = std::distance(std::cbegin(initialTable.columns), initialIter);
-                std::memcpy(
-                    static_cast<std::byte*>(table.instanceData[i]) + rowIndex * meta.storageBytes,
-                    static_cast<std::byte*>(initialTable.instanceData[initialIndex]) + location.rowIndex * meta.storageBytes,
-                    meta.storageBytes
-                );
+            if (!meta.storageBytes)
+                continue;
+            
+            for (; initialColIter < initialColEnd; ++initialColIter) {
+                if (initialColIter->hash() < meta.id.hash())
+                    continue;
+                if (initialColIter->hash() == meta.id.hash()) {
+                    const auto initialIndex = std::distance(initialColBeg, initialColIter);
+                    std::memcpy(
+                        static_cast<std::byte*>(table.instanceData[i]) + rowIndex * meta.storageBytes,
+                        static_cast<std::byte*>(initialTable.instanceData[initialIndex]) + location.rowIndex * meta.storageBytes,
+                        meta.storageBytes
+                    );
+                }
+                break;
             }
         }
 
         // Remove data from old table
         if (location.rowIndex != --initialTable.rowCount) {
-            for (std::size_t i = 0; i < initialTable.columns.size(); ++i) {
+            for (std::ptrdiff_t i = 0; i < initialTable.columns.size(); ++i) {
                 const auto& meta = initialTable.cellMetas[i];
                 std::memcpy(
                     static_cast<std::byte*>(initialTable.instanceData[i]) + location.rowIndex * meta.storageBytes,
