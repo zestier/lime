@@ -153,7 +153,6 @@ public:
         recordLocations[record.index] = { .tableIndex = tableIndex.value(), .rowIndex = rowIndex };
 
         // Copy over data from old table
-      
         const auto initialColBeg = std::cbegin(initialTable.columns);
         const auto initialColEnd = std::cend(initialTable.columns);
         auto initialColIter = initialColBeg;

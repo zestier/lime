@@ -13,15 +13,12 @@ struct CellMeta {
     std::size_t storageBytes;
 };
 
-constexpr auto compare(const std::size_t l, const std::size_t r) {
-    if (l < r)
-        return -1;
-    if (l > r)
-        return 1;
-    return 0;
+template <typename T>
+constexpr int compare(const T& l, const T& r) {
+    return (r < l) - (l < r);
 }
 
-constexpr auto compare(const CellMeta& lhs, const CellMeta& rhs) {
+constexpr int compare(const CellMeta& lhs, const CellMeta& rhs) {
     if (auto cmp = compare(lhs.alignment, rhs.alignment); cmp != 0)
         return cmp;
     if (auto cmp = compare(lhs.storageBytes, rhs.storageBytes); cmp != 0)
